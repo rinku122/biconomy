@@ -1,65 +1,46 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 import { toBuffer } from "ethereumjs-util";
 import abi from "ethereumjs-abi";
-// @ts-ignore: Unreachable code error
-import { Biconomy } from "@biconomy/mexa";
 
 import contractAbi from "./contractAbi.json";
 
 import Web3 from "web3";
 import axios from "axios";
-
-const userAddress: string = "0xeCCBe210fC8968B8D579Aa0F6aD74C7DEaD783F6";
-const privateKey = process.env.KEY;
-
-const contractAddress = "0x3a264e32e057bfc275d149e49a93b5ee1dd01450";
-const chainId = 80001;
 const apiKey = process.env.API_KEY;
-const apiId = process.env.APP_ID;
 const biconomyUrl = "https://api.biconomy.io/api/v2/meta-tx/native";
+const apiId = process.env.APP_ID;
 
-const provider: any = new Web3.providers.HttpProvider(`https://rpc-mumbai.maticvigil.com/v1/${process.env.RPC}`);
+const userAddress: string = "";
+const userPrivateKey: string = "";
 
-const biconomy: any = new Biconomy(provider, {
-  walletProvider: provider,
-  apiKey,
-  debug: false,
-  contractAddresses: [contractAddress],
-});
+const relayerAddress: string = "";
+const relayerAddressPrivateKey = "";
 
-const web3 = new Web3(biconomy);
+const contractAddress = "0x2d31c561be749d452913722DDf1e0bc095B025b4";
+const chainId = 11155111;
+
+const web3 = new Web3(
+  "https://eth-sepolia.g.alchemy.com/v2/YQ8xEKDUXKLQqV4u7dAd9QuMKIzFEvbn"
+);
 
 class BiconomyClass {
   constructor() {
-    biconomy.onEvent;
-    biconomy
-      .onEvent(biconomy.READY, async () => {
-        console.log("biconomy connected!!");
-        this.biconomyFunc();
-      })
-      .onEvent(biconomy.ERROR, (error: any, message: any) => {
-        if (error) {
-          console.log("error in connection!!");
-        } else {
-          console.log("message");
-          console.log(message);
-        }
-      });
+    this.biconomyFunc();
   }
-
   public async biconomyFunc() {
     try {
+      //If we want to do ourself
+
       const contract = new web3.eth.Contract(
         contractAbi as any,
         contractAddress
       );
 
       let nonce = await contract.methods.getNonce(userAddress).call();
-      let nonce1 = await web3.eth.getTransactionCount(userAddress);
-
-      console.log("nonce:", nonce);
+      const res = await contract.methods.getQuote().call();
+      console.log("Prev:", res);
       let functionSignature = contract.methods
-        .mintNFT(12, 10, "Nitest Token", userAddress)
+        .setQuote("Second Metatransaction.")
         .encodeABI();
 
       let messageToSign = abi.soliditySHA3(
@@ -69,32 +50,69 @@ class BiconomyClass {
 
       const { signature } = web3.eth.accounts.sign(
         "0x" + messageToSign.toString("hex"),
-        `0x${privateKey}`
+        `0x${userPrivateKey}`
       );
 
-      const { r, s, v } = this.getSignatureParameters(signature); // same helper used in SDK frontend code
+      const { r, s, v } = this.getSignatureParameters(signature);
       // console.log("sig :", signature);
       // console.log("r :", r);
       // console.log("s :", s);
       // console.log("v :", v);
       // console.log("functionSignature :", functionSignature);
 
-      const response = await axios({
-        method: "post",
-        url: biconomyUrl,
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-        },
-        data: {
-          to: contractAddress,
-          apiId,
-          params: [userAddress, functionSignature, r, s, v],
-          from: userAddress,
-        },
-      });
+      web3.eth.accounts.wallet.add(relayerAddressPrivateKey);
 
-      console.log("response :", response.data);
+      const tx = contract.methods.executeMetaTransaction(
+        userAddress,
+        functionSignature,
+        r,
+        s,
+        v
+      );
+
+      const gas = await tx.estimateGas({ from: relayerAddress, value: 0 });
+
+      const gasPrice = await web3.eth.getGasPrice();
+
+      const data = tx.encodeABI();
+
+      let nonceRelayer = await contract.methods.getNonce(relayerAddress).call();
+
+      const Txdata = {
+        from: relayerAddress,
+        to: contractAddress,
+        value: 0,
+        data,
+        gas,
+        gasPrice,
+        nounce: nonceRelayer,
+      };
+
+      console.log(Txdata);
+
+      const receipt = await web3.eth.sendTransaction(Txdata);
+
+      console.log("TransactionHasH", receipt.transactionHash);
+
+      const newres = await contract.methods.getQuote().call();
+      console.log("Prev:", newres);
+
+      //If we want to use biconomy api
+
+      // const response = await axios({
+      //   method: "post",
+      //   url: biconomyUrl,
+      //   headers: {
+      //     "Content-Type": "application/json",
+      //     "x-api-key": apiKey,
+      //   },
+      //   data: {
+      //     to: contractAddress,
+      //     apiId,
+      //     params: [userAddress, functionSignature, r, s, v],
+      //     from: userAddress,
+      //   },
+      // });
     } catch (err: any) {
       console.log(err);
     }
